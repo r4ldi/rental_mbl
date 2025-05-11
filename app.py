@@ -1,33 +1,28 @@
-from auth import login, register
-from menu import admin_menu, penyewa_menu
+from menu import admin_menu
 from models import Base
 from database import engine
+from rich.console import Console
+from rich.panel import Panel
+
+console = Console()
 
 def main():
-    # Buat semua tabel jika belum ada
-    Base.metadata.create_all(bind=engine)
-
+    Base.metadata.create_all(bind=engine)  # Buat tabel baru
     while True:
-        print("\n=== Sistem Rental Mobil CLI ===")
-        print("1. Login")
-        print("2. Registrasi")
-        print("3. Keluar")
+        console.print(Panel("[bold magenta]=== Sistem Rental Mobil CLI ===[/bold magenta]\n"
+                            "[bold cyan]1.[/bold cyan] Masuk ke Menu Admin\n"
+                            "[bold cyan]2.[/bold cyan] Keluar",
+                            title="Menu Utama", border_style="bold blue"))
+
         pilihan = input("Pilih opsi: ")
 
         if pilihan == "1":
-            user = login()
-            if user:
-                if hasattr(user, 'role') and user.role == "admin":
-                    admin_menu()
-                else:
-                    penyewa_menu(user)
+            admin_menu()
         elif pilihan == "2":
-            register()
-        elif pilihan == "3":
-            print("Terima kasih!")
+            console.print("[bold yellow]Terima kasih telah menggunakan sistem ini![/bold yellow]")
             break
         else:
-            print("Pilihan tidak valid.")
+            console.print("[bold red]Pilihan tidak valid. Silakan coba lagi.[/bold red]")
 
 if __name__ == '__main__':
     main()

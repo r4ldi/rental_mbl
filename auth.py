@@ -27,7 +27,7 @@ def register():
     if role == "penyewa":
         nama = input("Nama lengkap: ")
         kontak = input("Kontak: ")
-        penyewa = Penyewa(nama=nama, kontak=kontak)
+        penyewa = Penyewa(nama=nama, kontak=kontak)  # Tidak ada user_id
         session.add(penyewa)
         session.commit()
         print("Penyewa terdaftar.")
@@ -52,7 +52,7 @@ def login():
             session.close()
             return user
         else:
-            penyewa = session.query(Penyewa).filter_by(id=user.id).first()
+            penyewa = session.query(Penyewa).filter_by(id=user.id).first()  # Tidak ada user_id
             session.close()
             return penyewa
     else:

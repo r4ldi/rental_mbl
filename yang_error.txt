@@ -1,0 +1,2 @@
+1.error saat ingin menghapus mobil menggunakan id nya tetapi akan tetap terhapus di database
+2.saat berhasil login sebagai penyewa tidak ada fitur untuk si penyewa(balik lagi ke login)
