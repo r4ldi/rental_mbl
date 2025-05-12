@@ -4,9 +4,11 @@ from sqlalchemy.sql import text
 from models import Mobil, Penyewa, Transaksi
 from database import SessionLocal
 from datetime import datetime
+from datetime import timedelta
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
+from fpdf import FPDF
 
 console = Console()
 
@@ -25,13 +27,11 @@ def admin_menu():
     while True:
         console.print(Panel("[bold magenta]=== Menu Admin ===[/bold magenta]\n"
                             "[bold cyan]1.[/bold cyan] Kelola Mobil\n"
-                            "[bold cyan]2.[/bold cyan] Input Data Penyewaan\n"
-                            "[bold cyan]3.[/bold cyan] Lihat Laporan\n"
-                            "[bold cyan]4.[/bold cyan] Selesaikan Penyewaan\n"
-                            "[bold cyan]5.[/bold cyan] Lihat Data Penyewa\n"
-                            "[bold cyan]6.[/bold cyan] Reset Data (Hapus Semua)\n"
-                            "[bold cyan]7.[/bold cyan] Keluar",
-                            title="Sistem Rental Mobil CLI", border_style="bold cyan"))
+                            "[bold cyan]2.[/bold cyan] Kelola Penyewa\n"
+                            "[bold cyan]3.[/bold cyan] Kelola Penyewaan\n"
+                            "[bold cyan]4.[/bold cyan] Reset Data\n"  # Tambahkan opsi reset data
+                            "[bold cyan]5.[/bold cyan] Keluar",
+                            title="Sistem Rental Mobil CLI", border_style="bold blue"))
 
         pilihan = input("Pilih opsi: ")
 
@@ -39,28 +39,20 @@ def admin_menu():
             clear_screen()
             kelola_mobil(session)
         elif pilihan == "2":
-            input_data_penyewaan(session)
             clear_screen()
+            kelola_penyewa(session)
         elif pilihan == "3":
-            lihat_laporan(session)
             clear_screen()
-        elif pilihan == "4":
-            selesaikan_penyewaan(session)
+            kelola_penyewaan(session)
+        elif pilihan == "4":  # Tambahkan opsi reset data
             clear_screen()
+            reset_data(session)
         elif pilihan == "5":
-            lihat_data_penyewa(session)
             clear_screen()
-        elif pilihan == "6":
-            konfirmasi = input("Apakah Anda yakin ingin menghapus semua data? (y/n): ").strip().lower()
-            if konfirmasi == "y":
-                reset_data(session)
-            else:
-                console.print("[bold yellow]Reset data dibatalkan.[/bold yellow]")
-        elif pilihan == "7":
-            clear_screen()
+            console.print("[bold yellow]Keluar dari sistem. Terima kasih![/bold yellow]")
             break
         else:
-            console.print("[bold red]Pilihan tidak valid.[/bold red]")
+            console.print("[bold red]Pilihan tidak valid. Silakan coba lagi.[/bold red]")
     session.close()
 
 def kelola_mobil(session):
@@ -114,6 +106,17 @@ def kelola_mobil(session):
                 except ValueError:
                     console.print("[bold red]Harga Sewa per Hari harus berupa angka. Silakan coba lagi.[/bold red]")
 
+            # Validasi input jumlah
+            while True:
+                try:
+                    jumlah = int(input("Jumlah Mobil: "))
+                    if jumlah > 0:
+                        break
+                    else:
+                        console.print("[bold red]Jumlah mobil harus lebih dari 0.[/bold red]")
+                except ValueError:
+                    console.print("[bold red]Jumlah mobil harus berupa angka. Silakan coba lagi.[/bold red]")
+
             mobil = Mobil(
                 merk=merk,
                 nama=nama,
@@ -121,13 +124,14 @@ def kelola_mobil(session):
                 kapasitas=kapasitas,
                 tipe_transmisi=tipe_transmisi,
                 harga=harga,
+                jumlah=jumlah,  # Tambahkan jumlah mobil
                 status="Tersedia"
             )
             session.add(mobil)
             session.commit()
             console.print("[bold blue]Mobil berhasil ditambahkan![/bold blue]")
 
-        elif pilihan == "2":
+        elif pilihan == "2":  # Hapus Mobil
             clear_screen()
             console.print(Panel("[bold magenta]=== Hapus Mobil ===[/bold magenta]", border_style="bold red"))
             lihat_semua_mobil(session, pause=False)  # Tampilkan daftar mobil
@@ -138,19 +142,25 @@ def kelola_mobil(session):
                 if not mobil:
                     console.print("[bold red]Mobil tidak ditemukan.[/bold red]")
                 else:
-                    # Cek apakah mobil sedang disewa
-                    if mobil.status == "Disewa":
-                        console.print("[bold yellow]Mobil sedang disewa dan tidak dapat dihapus.[/bold yellow]")
+                    # Konfirmasi penghapusan
+                    console.print(f"[bold red]PERINGATAN: Anda akan menghapus mobil dengan nama '{mobil.nama}'![/bold red]")
+                    konfirmasi = input(f"Apakah Anda yakin ingin menghapus mobil '{mobil.nama}'? (y/n): ").strip().lower()
+
+                    if konfirmasi == "y":
+                        # Cek apakah mobil sedang disewa
+                        if mobil.status == "Disewa":
+                            console.print("[bold yellow]Mobil sedang disewa dan tidak dapat dihapus.[/bold yellow]")
+                        else:
+                            session.delete(mobil)
+                            session.commit()
+                            # Reset AUTO_INCREMENT menggunakan text()
+                            session.execute(text("ALTER TABLE mobil AUTO_INCREMENT = 1"))
+                            session.commit()
+                            console.print("[bold green]Mobil berhasil dihapus.[/bold green]")
                     else:
-                        session.delete(mobil)
-                        session.commit()
-                        # Reset AUTO_INCREMENT menggunakan text()
-                        session.execute(text("ALTER TABLE mobil AUTO_INCREMENT = 1"))
-                        session.commit()
-                        console.print("[bold blue]Mobil berhasil dihapus.[/bold blue]")
+                        console.print("[bold yellow]Penghapusan mobil dibatalkan.[/bold yellow]")
             except ValueError:
                 console.print("[bold red]ID Mobil harus berupa angka. Silakan coba lagi.[/bold red]")
-
         elif pilihan == "3":
             clear_screen()
             console.print(Panel("[bold magenta]=== Edit Mobil ===[/bold magenta]", border_style="bold cyan"))
@@ -284,16 +294,21 @@ def input_data_penyewaan(session):
     rata_rata_bbm = 12  # Asumsi rata-rata konsumsi BBM mobil (km/liter)
     harga_bbm = 10000  # Harga BBM per liter (contoh)
     total_bensin = jarak_tempuh / rata_rata_bbm
-    biaya_bahan_bakar = total_bensin * harga_bbm
-    total_pembayaran = total_sewa + biaya_bahan_bakar
+    biaya_bahan_bakar = round(total_bensin * harga_bbm)
+    total_pembayaran = round(total_sewa + biaya_bahan_bakar)
 
-    console.print(Panel("[bold magenta]=== Estimasi Biaya ===[/bold magenta]", border_style="bold blue"))
-    console.print(f"[bold cyan]Durasi Sewa:[/bold cyan] {durasi} hari")
-    console.print(f"[bold cyan]Jarak Tempuh:[/bold cyan] {jarak_tempuh} km")
-    console.print(f"[bold cyan]Total Harga Sewa:[/bold cyan] Rp{total_sewa:,}")
-    console.print(f"[bold cyan]Total Bensin yang Dibutuhkan:[/bold cyan] {total_bensin:.2f} liter")
-    console.print(f"[bold cyan]Biaya Bahan Bakar:[/bold cyan] Rp{biaya_bahan_bakar:,}")
-    console.print(f"[bold cyan]Total Pembayaran:[/bold cyan] Rp{total_pembayaran:,}")
+    # Tampilkan estimasi biaya dengan warna yang lebih rapi
+    estimasi_panel = Panel(
+        f"[bold cyan]Durasi Sewa:[/bold cyan] {durasi} hari\n"
+        f"[bold cyan]Jarak Tempuh:[/bold cyan] {jarak_tempuh} km\n"
+        f"[bold cyan]Total Harga Sewa:[/bold cyan] [bold green]Rp{total_sewa:,}[/bold green]\n"
+        f"[bold cyan]Total Bensin yang Dibutuhkan:[/bold cyan] [bold yellow]{total_bensin:.2f} liter[/bold yellow]\n"
+        f"[bold cyan]Biaya Bahan Bakar:[/bold cyan] [bold green]Rp{biaya_bahan_bakar:,}[/bold green]\n"
+        f"[bold cyan]Total Pembayaran:[/bold cyan] [bold red]Rp{total_pembayaran:,}[/bold red]",
+        title="[bold magenta]=== Estimasi Biaya ===[/bold magenta]",
+        border_style="bold blue"
+    )
+    console.print(estimasi_panel)
 
     konfirmasi = input("Lanjutkan (y/n)? ")
     if konfirmasi.lower() == 'y':
@@ -317,6 +332,7 @@ def input_data_penyewaan(session):
             penyewa_id=penyewa.id,
             mobil_id=mobil.id,
             durasi=durasi,
+            jarak_tempuh=jarak_tempuh,  # Simpan jarak tempuh
             total_bayar=total_pembayaran,
             tanggal_sewa=datetime.now()
         )
@@ -326,6 +342,7 @@ def input_data_penyewaan(session):
         console.print("[bold blue]Data penyewaan berhasil disimpan![/bold blue]")
     else:
         console.print("[bold yellow]Transaksi dibatalkan.[/bold yellow]")
+
 def lihat_laporan(session):
     transaksi_list = session.query(Transaksi).all()
     if not transaksi_list:
@@ -356,6 +373,7 @@ def lihat_laporan(session):
     console.print(table)
     console.print(f"[bold blue]Total Pendapatan: Rp{total_pendapatan:,}[/bold blue]")
     input("Tekan Enter untuk kembali...")
+    clear_screen()
 
 def lihat_semua_mobil(session, pause=True):
     """
@@ -498,26 +516,12 @@ def lihat_data_penyewa(session):
             console.print(detail_panel)
 
             # Tambahkan opsi untuk edit atau hapus data penyewa
-            console.print(Panel("[bold magenta]Pilih Opsi:[/bold magenta]\n"
-                                "[bold cyan]1.[/bold cyan] Edit Data Penyewa\n"
-                                "[bold cyan]2.[/bold cyan] Hapus Data Penyewa\n"
-                                "[bold cyan]3.[/bold cyan] Kembali",
-                                border_style="bold blue"))
-
-            pilihan = input("Pilih opsi: ")
-
-            if pilihan == "1":
-                edit_data_penyewa(session, penyewa)
-            elif pilihan == "2":
-                hapus_data_penyewa(session, penyewa)
-            elif pilihan == "3":
-                return
-            else:
-                console.print("[bold red]Pilihan tidak valid.[/bold red]")
+            
     except ValueError:
         console.print("[bold red]Input tidak valid. Harap masukkan ID yang benar.[/bold red]")
 
     input("\nTekan Enter untuk kembali...")
+    clear_screen()
 
 def edit_data_penyewa(session, penyewa):
     clear_screen()
@@ -561,36 +565,48 @@ def edit_data_penyewa(session, penyewa):
 
 def hapus_data_penyewa(session, penyewa):
     clear_screen()
+    console.print(f"[bold red]PERINGATAN: Anda akan menghapus penyewa dengan nama '{penyewa.nama}'![/bold red]")
     konfirmasi = input(f"Apakah Anda yakin ingin menghapus penyewa '{penyewa.nama}'? (y/n): ").strip().lower()
-    if konfirmasi == "y":
-        session.delete(penyewa)
-        session.commit()
-        print("\nData penyewa berhasil dihapus.")
-    else:
-        print("\nPenghapusan data penyewa dibatalkan.")
 
+    if konfirmasi == "y":
+        try:
+            session.delete(penyewa)
+            session.commit()
+            console.print("[bold green]Data penyewa berhasil dihapus.[/bold green]")
+        except Exception as e:
+            session.rollback()
+            console.print(f"[bold red]Terjadi kesalahan: {e}[/bold red]")
+    else:
+        console.print("[bold yellow]Penghapusan data penyewa dibatalkan.[/bold yellow]")
+        
 def reset_data(session):
     """
     Menghapus semua data dari tabel mobil, transaksi, dan penyewa, lalu mereset ID.
     """
     clear_screen()
-    try:
-        # Hapus semua data dari tabel transaksi, mobil, dan penyewa
-        session.query(Transaksi).delete()
-        session.query(Mobil).delete()
-        session.query(Penyewa).delete()
-        session.commit()
+    console.print("[bold red]PERINGATAN: Semua data akan dihapus dan ID akan direset![/bold red]")
+    konfirmasi = input("Apakah Anda yakin ingin menghapus semua data? (y/n): ").strip().lower()
 
-        # Reset AUTO_INCREMENT untuk tabel transaksi, mobil, dan penyewa
-        session.execute(text("ALTER TABLE transaksi AUTO_INCREMENT = 1"))
-        session.execute(text("ALTER TABLE mobil AUTO_INCREMENT = 1"))
-        session.execute(text("ALTER TABLE penyewa AUTO_INCREMENT = 1"))
-        session.commit()
+    if konfirmasi == "y":
+        try:
+            # Hapus semua data dari tabel transaksi, mobil, dan penyewa
+            session.query(Transaksi).delete()
+            session.query(Mobil).delete()
+            session.query(Penyewa).delete()
+            session.commit()
 
-        print("Semua data berhasil dihapus dan ID telah direset.")
-    except Exception as e:
-        session.rollback()
-        print(f"Terjadi kesalahan: {e}")
+            # Reset AUTO_INCREMENT untuk tabel transaksi, mobil, dan penyewa
+            session.execute(text("ALTER TABLE transaksi AUTO_INCREMENT = 1"))
+            session.execute(text("ALTER TABLE mobil AUTO_INCREMENT = 1"))
+            session.execute(text("ALTER TABLE penyewa AUTO_INCREMENT = 1"))
+            session.commit()
+
+            console.print("[bold green]Semua data berhasil dihapus dan ID telah direset.[/bold green]")
+        except Exception as e:
+            session.rollback()
+            console.print(f"[bold red]Terjadi kesalahan: {e}[/bold red]")
+    else:
+        console.print("[bold yellow]Penghapusan data dibatalkan.[/bold yellow]")
 
 def edit_mobil(session):
     clear_screen()
@@ -704,3 +720,206 @@ def cari_mobil(session):
         console.print("[bold red]Tidak ada mobil yang sesuai dengan kriteria pencarian.[/bold red]")
 
     input("Tekan Enter untuk kembali...")
+    clear_screen()
+
+def kelola_penyewa(session):
+    while True:
+        console.print(Panel("[bold magenta]=== Kelola Penyewa ===[/bold magenta]\n"
+                            "[bold cyan]1.[/bold cyan] Lihat Data Penyewa\n"
+                            "[bold cyan]2.[/bold cyan] Edit Data Penyewa\n"
+                            "[bold cyan]3.[/bold cyan] Hapus Data Penyewa\n"
+                            "[bold cyan]4.[/bold cyan] Kembali",
+                            title="Menu Kelola Penyewa", border_style="bold blue"))
+
+        pilihan = input("Pilih opsi: ")
+
+        if pilihan == "1":
+            clear_screen()
+            lihat_data_penyewa(session)
+        elif pilihan == "2":
+            clear_screen()
+            id_penyewa = input("Masukkan ID Penyewa yang ingin diedit: ")
+            penyewa = session.query(Penyewa).get(id_penyewa)
+            if penyewa:
+                edit_data_penyewa(session, penyewa)
+            else:
+                console.print("[bold red]Penyewa tidak ditemukan.[/bold red]")
+        elif pilihan == "3":
+            clear_screen()
+            id_penyewa = input("Masukkan ID Penyewa yang ingin dihapus: ")
+            penyewa = session.query(Penyewa).get(id_penyewa)
+            if penyewa:
+                hapus_data_penyewa(session, penyewa)
+            else:
+                console.print("[bold red]Penyewa tidak ditemukan.[/bold red]")
+        elif pilihan == "4":
+            clear_screen()
+            break
+        else:
+            console.print("[bold red]Pilihan tidak valid. Silakan coba lagi.[/bold red]")
+
+def kelola_penyewaan(session):
+    while True:
+        console.print(Panel("[bold magenta]=== Kelola Penyewaan ===[/bold magenta]\n"
+                            "[bold cyan]1.[/bold cyan] Input Data Penyewaan\n"
+                            "[bold cyan]2.[/bold cyan] Lihat Laporan Penyewaan\n"
+                            "[bold cyan]3.[/bold cyan] Selesaikan Penyewaan\n"
+                            "[bold cyan]4.[/bold cyan] Lihat Invoice\n"
+                            "[bold cyan]5.[/bold cyan] Kembali",
+                            title="Menu Kelola Penyewaan", border_style="bold blue"))
+
+        pilihan = input("Pilih opsi: ")
+
+        if pilihan == "1":
+            clear_screen()
+            input_data_penyewaan(session)
+        elif pilihan == "2":
+            clear_screen()
+            lihat_laporan(session)
+        elif pilihan == "3":
+            clear_screen()
+            selesaikan_penyewaan(session)
+        elif pilihan == "4":
+            clear_screen()
+            lihat_invoice(session)
+        elif pilihan == "5":
+            clear_screen()
+            break
+        else:
+            console.print("[bold red]Pilihan tidak valid. Silakan coba lagi.[/bold red]")
+
+def lihat_invoice(session):
+    clear_screen()
+    console.print(Panel("[bold magenta]=== Lihat Invoice ===[/bold magenta]", border_style="bold blue"))
+
+    # Tampilkan daftar transaksi
+    transaksi_list = session.query(Transaksi).all()
+    if not transaksi_list:
+        console.print("[bold red]Tidak ada transaksi yang tersedia.[/bold red]")
+        input("Tekan Enter untuk kembali...")
+        return
+
+    table = Table(title="Daftar Transaksi", show_header=True, header_style="bold magenta")
+    table.add_column("ID Transaksi", style="dim", width=12)
+    table.add_column("Penyewa", style="bold cyan")
+    table.add_column("Mobil")
+    table.add_column("Total Bayar", justify="right")
+
+    for t in transaksi_list:
+        penyewa = t.penyewa
+        mobil = t.mobil
+        table.add_row(
+            str(t.id),
+            penyewa.nama if penyewa else "N/A",
+            mobil.nama if mobil else "N/A",
+            f"Rp{t.total_bayar:,}"
+        )
+
+    console.print(table)
+
+    # Pilih ID transaksi untuk melihat invoice
+    try:
+        id_transaksi = int(input("\nMasukkan ID Transaksi untuk melihat invoice: "))
+        transaksi = session.query(Transaksi).get(id_transaksi)
+
+        if not transaksi:
+            console.print("[bold red]Transaksi tidak ditemukan.[/bold red]")
+            input("Tekan Enter untuk kembali...")
+            return
+
+        # Cetak invoice ke PDF
+        cetak_invoice_pdf(transaksi)
+        console.print("[bold green]Invoice berhasil dicetak ke PDF![/bold green]")
+
+    except ValueError:
+        console.print("[bold red]Input tidak valid. Harap masukkan ID yang benar.[/bold red]")
+
+    input("Tekan Enter untuk kembali...")
+    clear_screen()
+
+class InvoicePDF(FPDF):
+    def header(self):
+        self.set_font("Courier", 'B', 20)
+        self.cell(0, 10, "INVOICE", ln=True, align="R")
+        self.ln(10)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font("Courier", "I", 8)
+        self.cell(0, 10, f"Page {self.page_no()}", align="C")
+
+    def add_invoice_body(self, transaksi, jarak_tempuh, biaya_bensin):
+        penyewa = transaksi.penyewa
+        mobil = transaksi.mobil
+
+        # Billed to section
+        self.set_font("Courier", "B", 12)
+        self.cell(100, 10, "BILLED TO:", ln=True)
+        self.set_font("Courier", "", 12)
+        self.cell(100, 8, penyewa.nama, ln=True)
+        self.cell(100, 8, penyewa.kontak, ln=True)
+        self.cell(100, 8, f"{penyewa.alamat}, {penyewa.kel_desa}, {penyewa.kecamatan}", ln=True)
+
+        # Invoice Info
+        self.set_xy(150, 40)
+        self.set_font("Courier", "", 12)
+        self.cell(60, 8, f"Invoice No. {transaksi.id}", ln=True)
+        self.set_x(150)
+        self.cell(60, 8, transaksi.tanggal_sewa.strftime("%d %B %Y"), ln=True)
+        self.ln(10)
+
+        # Table
+        self.set_font("Courier", "B", 12)
+        self.cell(50, 10, "Mobil", 1)
+        self.cell(25, 10, "Durasi", 1)
+        self.cell(25, 10, "Jarak", 1)
+        self.cell(35, 10, "Harga Sewa", 1)
+        self.cell(35, 10, "Total", 1, ln=True)
+
+        self.set_font("Courier", "", 12)
+        self.cell(50, 10, f"{mobil.merk} {mobil.nama}", 1)  # Tambahkan merk mobil
+        self.cell(25, 10, f"{transaksi.durasi} hari", 1)
+        self.cell(25, 10, f"{jarak_tempuh} km", 1)  # Tambahkan jarak tempuh
+        self.cell(35, 10, f"Rp{mobil.harga:,}", 1)
+        self.cell(35, 10, f"Rp{transaksi.durasi * mobil.harga:,}", 1, ln=True)
+
+        # Subtotal, biaya bensin, dan total
+        subtotal = transaksi.durasi * mobil.harga
+        self.ln(5)
+        self.set_x(120)  # Geser ke kiri
+        self.cell(40, 10, "Subtotal:", 0)
+        self.cell(40, 10, f"Rp{subtotal:,}", 0, ln=True)
+        self.set_x(120)
+        self.cell(40, 10, "Biaya Bensin:", 0)
+        self.cell(40, 10, f"Rp{biaya_bensin:,}", 0, ln=True)
+        self.set_x(120)
+        self.set_font("Courier", "B", 12)
+        self.cell(40, 10, "Total:", 0)
+        self.cell(40, 10, f"Rp{subtotal + biaya_bensin:,}", 0, ln=True)
+
+        self.ln(15)
+        self.set_font("Courier", "", 12)
+        self.cell(0, 10, "Thank you!", ln=True)
+
+        # Signature info
+        self.set_y(-50)
+        self.set_font("Courier", "I", 10)
+        self.cell(0, 10, "Rental Mobil CLI", ln=True)
+        self.cell(0, 8, "Jl. Pahlawan No.54, Neglasari, Kec. Cibeunying Kaler, Kota Bandung, Jawa Barat 40124", ln=True)
+
+def cetak_invoice_pdf(transaksi):
+    """
+    Fungsi untuk mencetak invoice ke dalam file PDF dengan tampilan yang diperindah.
+    """
+    penyewa = transaksi.penyewa
+    mobil = transaksi.mobil
+    jarak_tempuh = transaksi.jarak_tempuh  # Ambil jarak tempuh dari transaksi
+    rata_rata_bbm = 12  # Asumsi konsumsi BBM mobil (km/liter)
+    harga_bbm = 10000  # Harga BBM per liter
+    total_bensin = jarak_tempuh / rata_rata_bbm
+    biaya_bensin = round(total_bensin * harga_bbm)
+
+    pdf = InvoicePDF()
+    pdf.add_page()
+    pdf.add_invoice_body(transaksi, jarak_tempuh, biaya_bensin)
+    pdf.output(f"Invoice_Transaksi_{transaksi.id}.pdf")

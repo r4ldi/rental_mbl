@@ -1,61 +1,28 @@
-from models import User, Penyewa
+from models import User
 from database import SessionLocal
+from rich.console import Console
+from rich.panel import Panel
 
-def register():
-    session = SessionLocal()
-    print("\n=== Registrasi ===")
-    username = input("Username: ")
-    password = input("Password: ")
-
-    # Validasi input role
-    while True:
-        role = input("Role (admin/penyewa): ").strip().lower()
-        if role in ['admin', 'penyewa']:
-            break
-        else:
-            print("Role tidak valid. Hanya boleh 'admin' atau 'penyewa'.")
-
-    if session.query(User).filter_by(username=username).first():
-        print("Username sudah terdaftar.")
-        session.close()
-        return None
-
-    user = User(username=username, password=password, role=role)
-    session.add(user)
-    session.commit()
-
-    if role == "penyewa":
-        nama = input("Nama lengkap: ")
-        kontak = input("Kontak: ")
-        penyewa = Penyewa(nama=nama, kontak=kontak)  # Tidak ada user_id
-        session.add(penyewa)
-        session.commit()
-        print("Penyewa terdaftar.")
-        session.close()
-        return penyewa
-    elif role == "admin":
-        print("Admin terdaftar.")
-        session.close()
-        return user
-
+console = Console()
 
 def login():
     session = SessionLocal()
-    print("\n=== Login ===")
-    username = input("Username: ")
-    password = input("Password: ")
+    console.print(Panel("[bold magenta]=== Login ===[/bold magenta]", border_style="bold blue"))
+    try:
+        user_id = int(input("Masukkan ID: "))
+    except ValueError:
+        console.print("[bold red]ID harus berupa angka.[/bold red]")
+        session.close()
+        return None
 
-    user = session.query(User).filter_by(username=username, password=password).first()
+    password = input("Masukkan Password: ")
+
+    user = session.query(User).filter_by(id=user_id, password=password).first()
     if user:
-        print(f"Login berhasil sebagai {user.role}")
-        if user.role == "admin":
-            session.close()
-            return user
-        else:
-            penyewa = session.query(Penyewa).filter_by(id=user.id).first()  # Tidak ada user_id
-            session.close()
-            return penyewa
+        console.print(f"[bold green]Login berhasil! Selamat datang, {user.username}.[/bold green]")
+        session.close()
+        return user
     else:
-        print("Username atau password salah.")
+        console.print("[bold red]ID atau password salah.[/bold red]")
         session.close()
         return None
